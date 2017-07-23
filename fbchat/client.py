@@ -7,6 +7,7 @@ from uuid import uuid1
 from random import choice
 from bs4 import BeautifulSoup as bs
 from mimetypes import guess_type
+from multiprocessing.pool import ThreadPool as TPool
 from .utils import *
 from .models import *
 from .graphql import *
@@ -30,13 +31,14 @@ class Client(object):
     Note: Modifying this results in undefined behaviour
     """
 
-    def __init__(self, email, password, user_agent=None, max_tries=5, session_cookies=None, logging_level=logging.INFO):
+    def __init__(self, email, password, user_agent=None, max_tries=5, num_threads=10, session_cookies=None, logging_level=logging.INFO):
         """Initializes and logs in the client
 
         :param email: Facebook `email`, `id` or `phone number`
         :param password: Facebook account password
         :param user_agent: Custom user agent to use when sending requests. If `None`, user agent will be chosen from a premade list (see :any:`utils.USER_AGENTS`)
         :param max_tries: Maximum number of times to try logging in
+        :param num_threads: Number of threads to allocate for onMessage listener
         :param session_cookies: Cookies from a previous session (Will default to login if these are invalid)
         :param logging_level: Configures the `logging level <https://docs.python.org/3/library/logging.html#logging-levels>`_. Defaults to `INFO`
         :type max_tries: int
@@ -54,6 +56,7 @@ class Client(object):
         self.default_thread_id = None
         self.default_thread_type = None
         self.req_url = ReqUrl()
+        self.tpool = TPool(processes=num_threads)
 
         if not user_agent:
             user_agent = choice(USER_AGENTS)
@@ -1481,8 +1484,10 @@ class Client(object):
                         message.timestamp = ts
                         #message.reactions = {}
                         thread_id, thread_type = getThreadIdAndThreadType(metadata)
-                        self.onMessage(mid=mid, author_id=author_id, message=delta.get('body', ''), message_object=message,
-                                       thread_id=thread_id, thread_type=thread_type, ts=ts, metadata=metadata, msg=m)
+                        self.tpool.apply_async(self.onMessage, (), {'mid': mid, 'author_id': author_id, 'message': delta.get('body', ''),
+                                                               'message_object': message,
+                                                               'thread_id': thread_id, 'thread_type': thread_type,
+                                                               'ts': ts, 'metadata': metadata, 'msg': m})
 
                     # Unknown message type
                     else:
